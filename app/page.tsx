@@ -1,39 +1,51 @@
 import { createClient } from '@/lib/supabase/server'
+import { signOut } from '@/app/auth/actions'
 
 export default async function Home() {
   const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-  const { data: tasks, error } = await supabase
-    .from('tasks')
-    .select('id')
+  // Middleware вже гарантує що user не null тут,
+  // але TypeScript цього не знає — тому перестраховуємось.
+  if (!user) return null
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name, is_admin')
+    .eq('id', user.id)
+    .single()
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-8">
-      <div className="max-w-lg space-y-4 text-center">
-        <h1 className="text-3xl font-bold">Video Tasks</h1>
-        <p className="text-gray-600">Smoke test</p>
+    <div className="min-h-screen">
+      <header className="border-b bg-white">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+          <h1 className="text-xl font-bold">Video Tasks</h1>
 
-        {error ? (
-          <div className="border border-red-300 bg-red-50 rounded p-4 text-left">
-            <p className="font-semibold text-red-700">Supabase error</p>
-            <pre className="text-xs mt-2 text-red-900 whitespace-pre-wrap">
-              {error.message}
-            </pre>
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-right">
+              <div className="font-medium">{profile?.full_name ?? user.email}</div>
+              <div className="text-gray-500 text-xs">{user.email}</div>
+            </div>
+            <form action={signOut}>
+              <button
+                type="submit"
+                className="text-sm px-3 py-1.5 border rounded hover:bg-gray-50"
+              >
+                Вийти
+              </button>
+            </form>
           </div>
-        ) : (
-          <div className="border border-green-300 bg-green-50 rounded p-4">
-            <p className="font-semibold text-green-700">
-              ✓ Connected to Supabase
-            </p>
-            <p className="text-sm mt-1 text-green-900">
-              Tasks visible: {tasks?.length ?? 0}
-            </p>
-            <p className="text-xs mt-2 text-gray-600">
-              (0 очікувано — RLS блокує читання без сесії)
-            </p>
-          </div>
-        )}
-      </div>
-    </main>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto p-6">
+        <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center text-gray-500">
+          <p className="text-lg">Kanban board</p>
+          <p className="text-sm mt-1">Буде тут завтра</p>
+        </div>
+      </main>
+    </div>
   )
 }
