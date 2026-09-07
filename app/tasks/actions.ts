@@ -53,7 +53,12 @@ export async function createTask(
   return null
 }
 
-export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
+export type UpdateStatusResult = { success: true } | { success: false; error: string }
+
+export async function updateTaskStatus(
+  taskId: string,
+  newStatus: TaskStatus
+): Promise<UpdateStatusResult> {
   const supabase = await createClient()
 
   const { error } = await supabase
@@ -62,9 +67,10 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     .eq('id', taskId)
 
   if (error) {
-    console.error('[updateTaskStatus] Supabase error:', error)
-    throw new Error('Не вдалося оновити статус')
+    console.error('[updateTaskStatus] Supabase error:', JSON.stringify(error, null, 2))
+    return { success: false, error: 'Не вдалося оновити статус' }
   }
 
   revalidatePath('/')
+  return { success: true }
 }
