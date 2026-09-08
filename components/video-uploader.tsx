@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { saveUploadedVideo } from '@/app/tasks/[id]/actions'
 import toast from 'react-hot-toast'
@@ -16,9 +17,9 @@ export function VideoUploader({ taskId }: Props) {
   const [isUploading, setIsUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const router = useRouter()
 
   async function handleFile(file: File) {
-    // Клієнтська валідація — швидкий фідбек юзеру
     if (!ACCEPTED_TYPES.includes(file.type)) {
       toast.error('Дозволені формати: MP4, MOV, WebM, MKV')
       return
@@ -34,15 +35,10 @@ export function VideoUploader({ taskId }: Props) {
     try {
       const supabase = createClient()
 
-      // Формуємо унікальний шлях: taskId/timestamp-<original name>
-      // - taskId в шляху дозволить у майбутньому легко видалити всі файли задачі
-      // - timestamp запобігає колізіям при перезавантаженні
       const timestamp = Date.now()
       const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
       const storagePath = `${taskId}/${timestamp}-${cleanName}`
 
-      // Upload напряму в Supabase Storage.
-      // upsert: false — щоб не перезаписати випадково
       const { error: uploadError } = await supabase.storage
         .from('source-videos')
         .upload(storagePath, file, {
@@ -53,27 +49,43 @@ export function VideoUploader({ taskId }: Props) {
       if (uploadError) {
         console.error('[VideoUploader] upload error:', uploadError)
         toast.error(`Помилка завантаження: ${uploadError.message}`)
-        setIsUploading(false)
         return
       }
 
-      setProgress(50) // upload завершено
+      setProgress(50)
 
-      // Тепер зберігаємо шлях у БД
       const result = await saveUploadedVideo(taskId, storagePath)
-
       if (!result.success) {
         toast.error(result.error)
-        setIsUploading(false)
         return
       }
 
       setProgress(100)
-      toast.success('Відео завантажено')
-      // Сторінка перерендериться завдяки revalidatePath у server action
+      toast.success('Відео завантажено, аналізуємо…')
+
+      // Тригеримо probe у фоні
+      try {
+        const probeResponse = await fetch(`/api/tasks/${taskId}/probe`, {
+          method: 'POST',
+        })
+        if (probeResponse.ok) {
+          const data = await probeResponse.json()
+          toast.success(`Тривалість: ${Math.round(data.duration)}s`)
+          router.refresh() // duration оновлюється в UI без ручного refresh
+        } else {
+          const errData = await probeResponse.json().catch(() => ({}))
+          toast.error(
+            errData.error ?? 'Не вдалося визначити тривалість (не критично)'
+          )
+        }
+      } catch (probeErr) {
+        console.error('[VideoUploader] probe fetch failed:', probeErr)
+        toast.error('Не вдалося визначити тривалість (не критично)')
+      }
     } catch (err) {
       console.error('[VideoUploader] unexpected:', err)
       toast.error('Несподівана помилка')
+    } finally {
       setIsUploading(false)
     }
   }
