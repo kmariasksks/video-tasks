@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getTaskById, formatDuration, TASK_STATUS_LABELS } from '@/lib/tasks'
+import { VideoUploader } from '@/components/video-uploader'
+import { getSignedSourceVideoUrl } from '@/lib/storage'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -20,6 +22,10 @@ export default async function TaskPage({ params }: PageProps) {
   if (!task) {
     notFound()
   }
+
+  const videoUrl = task.source_video_path
+    ? await getSignedSourceVideoUrl(task.source_video_path)
+    : null
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -83,19 +89,28 @@ export default async function TaskPage({ params }: PageProps) {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg border p-6">
-          <h2 className="font-semibold mb-4">Відео</h2>
-          {task.source_video_path ? (
-            <div className="text-sm text-gray-500">
-              Відео завантажене: {task.source_video_path}
-              <div className="mt-2 text-xs text-gray-400">
-                (плеєр і сцени будуть тут пізніше)
+        <div className="bg-white rounded-lg border p-6 space-y-4">
+          <h2 className="font-semibold">Відео</h2>
+
+          {task.source_video_path && videoUrl ? (
+            <div className="space-y-3">
+              <video
+                controls
+                src={videoUrl}
+                className="w-full rounded border bg-black max-h-[500px]"
+              >
+                Ваш браузер не підтримує відео-тег
+              </video>
+              <div className="text-xs text-gray-500 truncate">
+                {task.source_video_path}
               </div>
             </div>
           ) : (
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center text-gray-500">
-              <p>Відео ще не завантажене</p>
-              <p className="text-xs mt-1">Форма завантаження буде тут наступним кроком</p>
+            <div className="space-y-4">
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center text-gray-500">
+                <p className="mb-3">Відео ще не завантажене</p>
+              </div>
+              <VideoUploader taskId={task.id} />
             </div>
           )}
         </div>
