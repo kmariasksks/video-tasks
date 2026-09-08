@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { getTaskById, formatDuration, TASK_STATUS_LABELS } from '@/lib/tasks'
 import { VideoUploader } from '@/components/video-uploader'
 import { getSignedSourceVideoUrl } from '@/lib/storage'
+import { DeleteVideoButton } from '@/components/delete-video-button'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -92,7 +93,7 @@ export default async function TaskPage({ params }: PageProps) {
         <div className="bg-white rounded-lg border p-6 space-y-4">
           <h2 className="font-semibold">Відео</h2>
 
-          {task.source_video_path && videoUrl ? (
+        {task.source_video_path && videoUrl ? (
             <div className="space-y-3">
               <video
                 controls
@@ -101,8 +102,11 @@ export default async function TaskPage({ params }: PageProps) {
               >
                 Ваш браузер не підтримує відео-тег
               </video>
-              <div className="text-xs text-gray-500 truncate">
-                {task.source_video_path}
+              <div className="flex justify-between items-start gap-3 flex-wrap">
+                <div className="text-xs text-gray-500 truncate flex-1 min-w-0">
+                  {task.source_video_path}
+                </div>
+                <DeleteVideoButton taskId={task.id} />
               </div>
             </div>
           ) : (
