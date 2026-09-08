@@ -68,3 +68,45 @@ export function groupTasksByStatus(
 
   return grouped
 }
+
+export async function getTaskById(taskId: string): Promise<TaskWithAuthor | null> {
+  const supabase = await createClient()
+
+  const { data: task, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .eq('id', taskId)
+    .single()
+
+  if (error || !task) {
+    return null
+  }
+
+  // Підтягуємо автора окремим запитом (як у getAllTasks)
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, full_name, email')
+    .eq('id', task.user_id)
+    .single()
+
+  return {
+    ...task,
+    author: profile
+      ? { full_name: profile.full_name, email: profile.email }
+      : null,
+  } as TaskWithAuthor
+}
+
+export function formatDuration(seconds: number | null): string {
+  if (seconds === null || seconds < 0) return '—'
+
+  const totalSeconds = Math.round(seconds)
+  const minutes = Math.floor(totalSeconds / 60)
+  const remainingSeconds = totalSeconds % 60
+
+  if (minutes === 0) {
+    return `${remainingSeconds}s`
+  }
+
+  return `${minutes}m ${remainingSeconds.toString().padStart(2, '0')}s`
+}
