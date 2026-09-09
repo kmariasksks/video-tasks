@@ -6,6 +6,7 @@ import { DeleteVideoButton } from '@/components/delete-video-button'
 import { ScenesList } from '@/components/scenes-list'
 import { getSignedSourceVideoUrl } from '@/lib/storage'
 import { getScenesForTask } from '@/lib/tasks'
+import { VideoPlayerWithMarkers } from '@/components/video-player-with-markers'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -97,15 +98,13 @@ export default async function TaskPage({ params }: PageProps) {
         <div className="bg-white rounded-lg border p-6 space-y-4">
           <h2 className="font-semibold">Відео</h2>
 
-          {task.source_video_path && videoUrl ? (
+        {task.source_video_path && videoUrl ? (
             <div className="space-y-3">
-              <video
-                controls
-                src={videoUrl}
-                className="w-full rounded border bg-black max-h-[500px]"
-              >
-                Ваш браузер не підтримує відео-тег
-              </video>
+              <VideoPlayerWithMarkers
+                videoUrl={videoUrl}
+                duration={task.source_video_duration_sec}
+                scenes={scenes}
+              />
               <div className="flex justify-between items-start gap-3 flex-wrap">
                 <div className="text-xs text-gray-500 truncate flex-1 min-w-0">
                   {task.source_video_path}
