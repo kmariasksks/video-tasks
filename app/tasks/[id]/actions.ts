@@ -16,6 +16,10 @@ export type CreateVersionResult =
   | { success: true; versionId: string; versionNumber: number }
   | { success: false; error: string }
 
+export type TimelineResult =
+  | { success: true }
+  | { success: false; error: string }
+
 export async function saveUploadedVideo(
   taskId: string,
   storagePath: string
@@ -64,7 +68,6 @@ export async function deleteTaskVideo(
   }
 
   if (task.source_video_path) {
-    // 1. Видаляємо файл зі Storage
     const { error: storageError } = await admin.storage
       .from('source-videos')
       .remove([task.source_video_path])
@@ -74,7 +77,6 @@ export async function deleteTaskVideo(
     }
   }
 
-  // 2. Видаляємо всі версії задачі (каскадно видаляться і segments)
   const { error: versionsError } = await admin
     .from('versions')
     .delete()
@@ -84,7 +86,6 @@ export async function deleteTaskVideo(
     console.error('[deleteTaskVideo] versions delete:', JSON.stringify(versionsError))
   }
 
-  // 3. Видаляємо сцени
   const { error: scenesError } = await admin
     .from('scenes')
     .delete()
@@ -94,7 +95,6 @@ export async function deleteTaskVideo(
     console.error('[deleteTaskVideo] scenes delete:', JSON.stringify(scenesError))
   }
 
-  // 4. Обнуляємо посилання і тривалість
   const { error: updateError } = await supabase
     .from('tasks')
     .update({
@@ -112,11 +112,6 @@ export async function deleteTaskVideo(
   return { success: true }
 }
 
-/**
- * Створює нову версію.
- * Якщо переданий copyFromVersionId — копіює segments звідти.
- * Інакше копіює з базових scenes (для першої версії).
- */
 export async function createVersion(
   taskId: string,
   copyFromVersionId?: string
@@ -130,7 +125,6 @@ export async function createVersion(
 
   if (!user) return { success: false, error: 'Не залогінені' }
 
-  // 1. Отримуємо найбільший version_number
   const { data: existingVersions } = await supabase
     .from('versions')
     .select('version_number')
@@ -143,7 +137,6 @@ export async function createVersion(
       ? existingVersions[0].version_number + 1
       : 1
 
-  // 2. Створюємо саму версію
   const { data: newVersion, error: versionError } = await admin
     .from('versions')
     .insert({
@@ -160,7 +153,6 @@ export async function createVersion(
     return { success: false, error: 'Не вдалося створити версію' }
   }
 
-  // 3. Готуємо сегменти — або копія з іншої версії, або з базових scenes
   let segmentsToInsert: Array<{
     version_id: string
     source_scene_id: string | null
@@ -186,7 +178,6 @@ export async function createVersion(
       }))
     }
   } else {
-    // Перша версія — беремо з базових сцен
     const { data: scenes } = await supabase
       .from('scenes')
       .select('id, scene_index, start_sec, end_sec')
@@ -204,7 +195,6 @@ export async function createVersion(
     }
   }
 
-  // 4. Вставляємо сегменти (може бути порожньо, якщо нема ні джерела ні сцен)
   if (segmentsToInsert.length > 0) {
     const { error: segmentsError } = await admin
       .from('version_segments')
@@ -212,7 +202,6 @@ export async function createVersion(
 
     if (segmentsError) {
       console.error('[createVersion] segments error:', JSON.stringify(segmentsError))
-      // Не критично — версія створена, юзер може додати сегменти вручну
     }
   }
 
@@ -223,4 +212,124 @@ export async function createVersion(
     versionId: newVersion.id,
     versionNumber: nextVersionNumber,
   }
+}
+
+/**
+ * Замінює всі сегменти версії новими.
+ * Використовуємо для reorder, видалення, розрізу — всіх мутацій таймлайну.
+ */
+export async function replaceVersionSegments(
+  versionId: string,
+  segments: Array<{
+    source_scene_id: string | null
+    position: number
+    start_sec: number
+    end_sec: number
+  }>
+): Promise<TimelineResult> {
+  const supabase = await createClient()
+  const admin = createAdminClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { success: false, error: 'Не залогінені' }
+
+  for (const seg of segments) {
+    if (seg.start_sec >= seg.end_sec) {
+      return { success: false, error: 'Некоректний сегмент: start >= end' }
+    }
+    if (seg.start_sec < 0) {
+      return { success: false, error: 'Некоректний сегмент: start < 0' }
+    }
+  }
+
+  const { error: deleteError } = await admin
+    .from('version_segments')
+    .delete()
+    .eq('version_id', versionId)
+
+  if (deleteError) {
+    console.error('[replaceVersionSegments] delete error:', JSON.stringify(deleteError))
+    return { success: false, error: 'Не вдалося очистити сегменти' }
+  }
+
+  if (segments.length > 0) {
+    const { error: insertError } = await admin
+      .from('version_segments')
+      .insert(
+        segments.map((s) => ({
+          version_id: versionId,
+          source_scene_id: s.source_scene_id,
+          position: s.position,
+          start_sec: s.start_sec,
+          end_sec: s.end_sec,
+        }))
+      )
+
+    if (insertError) {
+      console.error('[replaceVersionSegments] insert error:', JSON.stringify(insertError))
+      return { success: false, error: 'Не вдалося зберегти сегменти' }
+    }
+  }
+
+  await admin
+    .from('versions')
+    .update({
+      render_status: 'pending',
+      rendered_video_path: null,
+      rendered_duration_sec: null,
+      render_duration_ms: null,
+      render_error: null,
+    })
+    .eq('id', versionId)
+
+  const { data: version } = await admin
+    .from('versions')
+    .select('task_id')
+    .eq('id', versionId)
+    .single()
+
+  if (version) {
+    revalidatePath(`/tasks/${version.task_id}`)
+  }
+
+  return { success: true }
+}
+
+/**
+ * Скидає таймлайн версії до дефолту — копіює всі сцени як сегменти.
+ */
+export async function resetVersionToAutoDetect(
+  taskId: string,
+  versionId: string
+): Promise<TimelineResult> {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { success: false, error: 'Не залогінені' }
+
+  const { data: scenes } = await supabase
+    .from('scenes')
+    .select('id, scene_index, start_sec, end_sec')
+    .eq('task_id', taskId)
+    .order('scene_index', { ascending: true })
+
+  if (!scenes || scenes.length === 0) {
+    return { success: false, error: 'Немає сцен для скидання' }
+  }
+
+  return replaceVersionSegments(
+    versionId,
+    scenes.map((s, i) => ({
+      source_scene_id: s.id,
+      position: i,
+      start_sec: s.start_sec,
+      end_sec: s.end_sec,
+    }))
+  )
 }

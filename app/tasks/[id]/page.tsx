@@ -1,13 +1,13 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getTaskById, formatDuration, TASK_STATUS_LABELS, getScenesForTask } from '@/lib/tasks'
-import { getVersionsForTask, getVersionSegments } from '@/lib/versions'
+import { getVersionsForTask, getVersionSegments } from '@/lib/tasks'
 import { VideoUploader } from '@/components/video-uploader'
 import { DeleteVideoButton } from '@/components/delete-video-button'
 import { ScenesList } from '@/components/scenes-list'
 import { VideoPlayerWithMarkers } from '@/components/video-player-with-markers'
 import { VersionSelector } from '@/components/version-selector'
-import { TimelinePlaceholder } from '@/components/timeline-placeholder'
+import { TimelineEditor } from '@/components/timeline-editor'
 import { getSignedSourceVideoUrl } from '@/lib/storage'
 
 type PageProps = {
@@ -148,9 +148,20 @@ export default async function TaskPage({ params, searchParams }: PageProps) {
               versions={versions}
               currentVersionId={selectedVersion?.id ?? null}
             />
-            <div className="border-t pt-4">
-              <TimelinePlaceholder segments={segments} />
-            </div>
+            {selectedVersion ? (
+              <div className="border-t pt-4">
+                <TimelineEditor
+                  taskId={task.id}
+                  versionId={selectedVersion.id}
+                  segments={segments}
+                  hasScenes={scenes.length > 0}
+                />
+              </div>
+            ) : (
+              <div className="border-t pt-4 text-sm text-gray-500">
+                Спочатку виявіть сцени, потім тут з'явиться таймлайн.
+              </div>
+            )}
           </div>
         )}
       </main>

@@ -130,3 +130,42 @@ export async function getScenesForTask(taskId: string): Promise<Scene[]> {
 
   return (data ?? []) as Scene[]
 }
+
+import type { Version, VersionSegment } from '@/types/database'
+// ↑ якщо Version/VersionSegment ще не в цьому імпорті — додай їх
+
+export async function getVersionsForTask(taskId: string): Promise<Version[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('versions')
+    .select('*')
+    .eq('task_id', taskId)
+    .order('version_number', { ascending: true })
+
+  if (error) {
+    console.error('[getVersionsForTask] error:', JSON.stringify(error))
+    return []
+  }
+
+  return (data ?? []) as Version[]
+}
+
+export async function getVersionSegments(
+  versionId: string
+): Promise<VersionSegment[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('version_segments')
+    .select('*')
+    .eq('version_id', versionId)
+    .order('position', { ascending: true })
+
+  if (error) {
+    console.error('[getVersionSegments] error:', JSON.stringify(error))
+    return []
+  }
+
+  return (data ?? []) as VersionSegment[]
+}
