@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export type UploadResult =
   | { success: true }
@@ -46,6 +47,7 @@ export async function deleteTaskVideo(
   taskId: string
 ): Promise<DeleteVideoResult> {
   const supabase = await createClient()
+  const admin = createAdminClient()
 
   const {
     data: { user },
@@ -72,7 +74,7 @@ export async function deleteTaskVideo(
   }
 
   // 1. Видаляємо файл зі Storage
-  const { error: storageError } = await supabase.storage
+  const { error: storageError } = await admin.storage
     .from('source-videos')
     .remove([task.source_video_path])
 
@@ -86,7 +88,7 @@ export async function deleteTaskVideo(
   }
 
   // 2. Видаляємо всі знайдені сцени для цієї задачі (вони прив'язані до видаленого відео)
-  const { error: scenesError } = await supabase
+  const { error: scenesError } = await admin
     .from('scenes')
     .delete()
     .eq('task_id', taskId)

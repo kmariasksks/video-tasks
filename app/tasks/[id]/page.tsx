@@ -2,8 +2,10 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getTaskById, formatDuration, TASK_STATUS_LABELS } from '@/lib/tasks'
 import { VideoUploader } from '@/components/video-uploader'
-import { getSignedSourceVideoUrl } from '@/lib/storage'
 import { DeleteVideoButton } from '@/components/delete-video-button'
+import { ScenesList } from '@/components/scenes-list'
+import { getSignedSourceVideoUrl } from '@/lib/storage'
+import { getScenesForTask } from '@/lib/tasks'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -27,6 +29,8 @@ export default async function TaskPage({ params }: PageProps) {
   const videoUrl = task.source_video_path
     ? await getSignedSourceVideoUrl(task.source_video_path)
     : null
+
+  const scenes = await getScenesForTask(id)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -93,7 +97,7 @@ export default async function TaskPage({ params }: PageProps) {
         <div className="bg-white rounded-lg border p-6 space-y-4">
           <h2 className="font-semibold">Відео</h2>
 
-        {task.source_video_path && videoUrl ? (
+          {task.source_video_path && videoUrl ? (
             <div className="space-y-3">
               <video
                 controls
@@ -118,6 +122,12 @@ export default async function TaskPage({ params }: PageProps) {
             </div>
           )}
         </div>
+
+        <ScenesList
+          taskId={task.id}
+          scenes={scenes}
+          hasVideo={!!task.source_video_path}
+        />
       </main>
     </div>
   )

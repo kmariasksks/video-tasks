@@ -1,12 +1,8 @@
-import { execFile } from 'child_process'
+import { execFile, spawn } from 'child_process'
 import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
 
-/**
- * Читає метадані відео через ffprobe.
- * Повертає JSON у форматі, який видає ffprobe -show_format -show_streams.
- */
 export async function probeVideo(filePath: string): Promise<{
   duration: number
   format: string
@@ -37,4 +33,69 @@ export async function probeVideo(filePath: string): Promise<{
   }))
 
   return { duration, format, streams }
+}
+
+export type SceneRange = { start: number; end: number }
+
+/**
+ * Виявляє межі сцен через ffmpeg scene filter.
+ * Повертає масив діапазонів [start, end] в секундах.
+ * threshold — чутливість (0..1), 0.4 стандарт.
+ */
+export async function detectScenes(
+  filePath: string,
+  totalDuration: number,
+  threshold = 0.1
+): Promise<SceneRange[]> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('ffmpeg', [
+      '-i', filePath,
+      '-vf', `select='gt(scene,${threshold})',showinfo`,
+      '-f', 'null',
+      '-',
+    ])
+
+    let stderr = ''
+    proc.stderr.on('data', (chunk) => {
+      stderr += chunk.toString()
+    })
+
+    proc.on('error', (err) => reject(err))
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`ffmpeg exited with code ${code}. Last output: ${stderr.slice(-400)}`))
+        return
+      }
+
+      // Парсимо pts_time з рядків showinfo
+      const timestamps: number[] = []
+      const regex = /pts_time:([\d.]+)/g
+      let match: RegExpExecArray | null
+      while ((match = regex.exec(stderr)) !== null) {
+        const t = parseFloat(match[1])
+        if (!isNaN(t) && t > 0 && t < totalDuration) {
+          timestamps.push(t)
+        }
+      }
+
+      // Сортуємо і викидаємо дублі (буває)
+      const uniqueSorted = [...new Set(timestamps)].sort((a, b) => a - b)
+
+      // Формуємо межі сцен: 0 → t1 → t2 → ... → duration
+      const boundaries = [0, ...uniqueSorted, totalDuration]
+      const scenes: SceneRange[] = []
+
+      for (let i = 0; i < boundaries.length - 1; i++) {
+        const start = boundaries[i]
+        const end = boundaries[i + 1]
+        // Фільтруємо мікросцени <100 мс — це шум від FFmpeg
+        if (end - start >= 0.1) {
+          scenes.push({ start, end })
+        }
+      }
+
+      resolve(scenes)
+    })
+  })
 }

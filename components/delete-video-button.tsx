@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { deleteTaskVideo } from '@/app/tasks/[id]/actions'
 import toast from 'react-hot-toast'
+import { useRouter } from 'next/navigation'
 
 type Props = {
   taskId: string
@@ -10,6 +11,7 @@ type Props = {
 
 export function DeleteVideoButton({ taskId }: Props) {
   const [confirming, setConfirming] = useState(false)
+  const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
   function handleClick() {
@@ -24,6 +26,7 @@ export function DeleteVideoButton({ taskId }: Props) {
       const result = await deleteTaskVideo(taskId)
       if (result.success) {
         toast.success('Відео видалено')
+        router.refresh()
       } else {
         toast.error(result.error)
       }

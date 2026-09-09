@@ -16,6 +16,7 @@ type Props = {
 export function VideoUploader({ taskId }: Props) {
   const [isUploading, setIsUploading] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [stage, setStage] = useState<'upload' | 'probe' | 'scenes' | ''>('')
   const inputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
@@ -31,6 +32,7 @@ export function VideoUploader({ taskId }: Props) {
 
     setIsUploading(true)
     setProgress(0)
+    setStage('upload')
 
     try {
       const supabase = createClient()
@@ -52,7 +54,7 @@ export function VideoUploader({ taskId }: Props) {
         return
       }
 
-      setProgress(50)
+      setProgress(33)
 
       const result = await saveUploadedVideo(taskId, storagePath)
       if (!result.success) {
@@ -60,35 +62,59 @@ export function VideoUploader({ taskId }: Props) {
         return
       }
 
-      setProgress(100)
-      toast.success('Відео завантажено, аналізуємо…')
-
-      // Тригеримо probe у фоні
+      // Probe
+      setStage('probe')
+      setProgress(50)
       try {
-        const probeResponse = await fetch(`/api/tasks/${taskId}/probe`, {
+        const probeRes = await fetch(`/api/tasks/${taskId}/probe`, {
           method: 'POST',
         })
-        if (probeResponse.ok) {
-          const data = await probeResponse.json()
+        if (probeRes.ok) {
+          const data = await probeRes.json()
           toast.success(`Тривалість: ${Math.round(data.duration)}s`)
-          router.refresh() // duration оновлюється в UI без ручного refresh
         } else {
-          const errData = await probeResponse.json().catch(() => ({}))
-          toast.error(
-            errData.error ?? 'Не вдалося визначити тривалість (не критично)'
-          )
+          const err = await probeRes.json().catch(() => ({}))
+          toast.error(err.error ?? 'Не вдалося визначити тривалість')
         }
-      } catch (probeErr) {
-        console.error('[VideoUploader] probe fetch failed:', probeErr)
-        toast.error('Не вдалося визначити тривалість (не критично)')
+      } catch (e) {
+        console.error('[VideoUploader] probe failed:', e)
       }
+
+      // Scene detection
+      setStage('scenes')
+      setProgress(75)
+      try {
+        const scenesRes = await fetch(`/api/tasks/${taskId}/detect-scenes`, {
+          method: 'POST',
+        })
+        if (scenesRes.ok) {
+          const data = await scenesRes.json()
+          toast.success(`Знайдено сцен: ${data.count}`)
+        } else {
+          const err = await scenesRes.json().catch(() => ({}))
+          toast.error(err.error ?? 'Не вдалося виявити сцени')
+        }
+      } catch (e) {
+        console.error('[VideoUploader] scenes failed:', e)
+      }
+
+      setProgress(100)
+      router.refresh()
     } catch (err) {
       console.error('[VideoUploader] unexpected:', err)
       toast.error('Несподівана помилка')
     } finally {
       setIsUploading(false)
+      setStage('')
     }
   }
+
+  const stageLabel = {
+    upload: 'Завантаження…',
+    probe: 'Визначення тривалості…',
+    scenes: 'Пошук сцен…',
+    '': '',
+  }[stage]
 
   return (
     <div className="space-y-3">
@@ -113,9 +139,7 @@ export function VideoUploader({ taskId }: Props) {
 
       {isUploading && (
         <div className="space-y-1">
-          <div className="text-xs text-gray-600">
-            {progress < 100 ? 'Завантаження…' : 'Готово'}
-          </div>
+          <div className="text-xs text-gray-600">{stageLabel}</div>
           <div className="h-1.5 bg-gray-200 rounded overflow-hidden">
             <div
               className="h-full bg-black transition-all"

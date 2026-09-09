@@ -110,3 +110,23 @@ export function formatDuration(seconds: number | null): string {
 
   return `${minutes}m ${remainingSeconds.toString().padStart(2, '0')}s`
 }
+
+import type { Scene } from '@/types/database'
+// ↑ додай Scene в існуючий імпорт з types/database, або окремим рядком
+
+export async function getScenesForTask(taskId: string): Promise<Scene[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('scenes')
+    .select('*')
+    .eq('task_id', taskId)
+    .order('scene_index', { ascending: true })
+
+  if (error) {
+    console.error('[getScenesForTask] error:', JSON.stringify(error))
+    return []
+  }
+
+  return (data ?? []) as Scene[]
+}
