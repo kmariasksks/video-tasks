@@ -100,6 +100,50 @@ export async function POST(_request: Request, { params }: RouteParams) {
       }
     }
 
+    // Автостворення v1, якщо в задачі ще нема жодної версії.
+    // Це дає юзеру одразу готовий таймлайн з усіма сценами.
+    const { data: existingVersions } = await admin
+      .from('versions')
+      .select('id')
+      .eq('task_id', taskId)
+      .limit(1)
+
+    if (!existingVersions || existingVersions.length === 0) {
+      const { data: newVersion, error: versionErr } = await admin
+        .from('versions')
+        .insert({
+          task_id: taskId,
+          version_number: 1,
+          name: 'v1',
+          render_status: 'pending',
+        })
+        .select('id')
+        .single()
+
+      if (versionErr) {
+        console.error('[detect-scenes] auto v1 error:', JSON.stringify(versionErr))
+      } else if (newVersion && scenes.length > 0) {
+        // Копіюємо сцени в сегменти v1
+        const { data: freshScenes } = await admin
+          .from('scenes')
+          .select('id, scene_index, start_sec, end_sec')
+          .eq('task_id', taskId)
+          .order('scene_index', { ascending: true })
+
+        if (freshScenes) {
+          await admin.from('version_segments').insert(
+            freshScenes.map((s, i) => ({
+              version_id: newVersion.id,
+              source_scene_id: s.id,
+              position: i,
+              start_sec: s.start_sec,
+              end_sec: s.end_sec,
+            }))
+          )
+        }
+      }
+    }
+
     revalidatePath(`/tasks/${taskId}`)
 
     return NextResponse.json({
