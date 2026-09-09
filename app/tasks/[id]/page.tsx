@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/server'
 import {
   getTaskById,
   formatDuration,
@@ -7,6 +8,7 @@ import {
   getScenesForTask,
   getVersionsForTask,
   getVersionSegments,
+  getCommentsForTask,
 } from '@/lib/tasks'
 import {
   getSignedSourceVideoUrl,
@@ -19,6 +21,7 @@ import { VideoPlayerWithMarkers } from '@/components/video-player-with-markers'
 import { VersionSelector } from '@/components/version-selector'
 import { TimelineEditor } from '@/components/timeline-editor-wrapper'
 import { RenderPanel } from '@/components/render-panel'
+import { CommentsSection } from '@/components/comments-section'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -36,18 +39,24 @@ export default async function TaskPage({ params, searchParams }: PageProps) {
   const { id } = await params
   const { version: versionParam } = await searchParams
 
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return null
+
   const task = await getTaskById(id)
   if (!task) notFound()
 
-  const [videoUrl, scenes, versions] = await Promise.all([
+  const [videoUrl, scenes, versions, comments] = await Promise.all([
     task.source_video_path
       ? getSignedSourceVideoUrl(task.source_video_path)
       : Promise.resolve(null),
     getScenesForTask(id),
     getVersionsForTask(id),
+    getCommentsForTask(id),
   ])
 
-  // Обираємо версію: з URL param, або першу за замовчуванням
   const selectedVersion =
     versions.find((v) => v.id === versionParam) ?? versions[0] ?? null
 
@@ -55,7 +64,6 @@ export default async function TaskPage({ params, searchParams }: PageProps) {
     ? await getVersionSegments(selectedVersion.id)
     : []
 
-  // Signed URL для рендеру (якщо він є)
   const renderedVideoUrl = selectedVersion?.rendered_video_path
     ? await getSignedRenderedVideoUrl(selectedVersion.rendered_video_path)
     : null
@@ -184,6 +192,12 @@ export default async function TaskPage({ params, searchParams }: PageProps) {
             )}
           </div>
         )}
+
+        <CommentsSection
+          taskId={task.id}
+          comments={comments}
+          currentUserId={user.id}
+        />
       </main>
     </div>
   )

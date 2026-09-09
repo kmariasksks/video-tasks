@@ -333,3 +333,70 @@ export async function resetVersionToAutoDetect(
     }))
   )
 }
+
+export type CommentActionResult =
+  | { success: true }
+  | { success: false; error: string }
+
+export async function addComment(
+  taskId: string,
+  body: string
+): Promise<CommentActionResult> {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { success: false, error: 'Не залогінені' }
+
+  const trimmed = body.trim()
+  if (!trimmed) {
+    return { success: false, error: 'Коментар не може бути пустим' }
+  }
+  if (trimmed.length > 2000) {
+    return { success: false, error: 'Коментар занадто довгий (макс 2000 символів)' }
+  }
+
+  const { error } = await supabase.from('comments').insert({
+    task_id: taskId,
+    user_id: user.id,
+    body: trimmed,
+  })
+
+  if (error) {
+    console.error('[addComment] error:', JSON.stringify(error))
+    return { success: false, error: 'Не вдалося додати коментар' }
+  }
+
+  revalidatePath(`/tasks/${taskId}`)
+  return { success: true }
+}
+
+export async function deleteComment(
+  commentId: string,
+  taskId: string
+): Promise<CommentActionResult> {
+  const supabase = await createClient()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { success: false, error: 'Не залогінені' }
+
+  // RLS політика `comments_delete_own` гарантує що юзер видалить тільки свої
+  const { error } = await supabase
+    .from('comments')
+    .delete()
+    .eq('id', commentId)
+    .eq('user_id', user.id) // Додаткова перевірка на клієнтському рівні
+
+  if (error) {
+    console.error('[deleteComment] error:', JSON.stringify(error))
+    return { success: false, error: 'Не вдалося видалити коментар' }
+  }
+
+  revalidatePath(`/tasks/${taskId}`)
+  return { success: true }
+}

@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import type { TaskStatus, TaskWithAuthor } from '@/types/database'
+import type { TaskStatus, TaskWithAuthor, Comment } from '@/types/database'
 
 export const TASK_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'review', 'done']
 
@@ -168,4 +168,46 @@ export async function getVersionSegments(
   }
 
   return (data ?? []) as VersionSegment[]
+}
+
+export type CommentWithAuthor = Comment & {
+  author: { full_name: string | null; email: string } | null
+}
+
+export async function getCommentsForTask(
+  taskId: string
+): Promise<CommentWithAuthor[]> {
+  const supabase = await createClient()
+
+  const { data: comments, error } = await supabase
+    .from('comments')
+    .select('*')
+    .eq('task_id', taskId)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('[getCommentsForTask] error:', JSON.stringify(error))
+    return []
+  }
+
+  if (!comments || comments.length === 0) return []
+
+  // Підтягуємо профілі авторів одним запитом
+  const userIds = [...new Set(comments.map((c) => c.user_id))]
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, full_name, email')
+    .in('id', userIds)
+
+  const profilesMap = new Map(profiles?.map((p) => [p.id, p]) ?? [])
+
+  return comments.map((c) => {
+    const profile = profilesMap.get(c.user_id)
+    return {
+      ...c,
+      author: profile
+        ? { full_name: profile.full_name, email: profile.email }
+        : null,
+    }
+  }) as CommentWithAuthor[]
 }
