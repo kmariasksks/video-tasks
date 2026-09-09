@@ -1,14 +1,24 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { getTaskById, formatDuration, TASK_STATUS_LABELS, getScenesForTask } from '@/lib/tasks'
-import { getVersionsForTask, getVersionSegments } from '@/lib/tasks'
+import {
+  getTaskById,
+  formatDuration,
+  TASK_STATUS_LABELS,
+  getScenesForTask,
+  getVersionsForTask,
+  getVersionSegments,
+} from '@/lib/tasks'
+import {
+  getSignedSourceVideoUrl,
+  getSignedRenderedVideoUrl,
+} from '@/lib/storage'
 import { VideoUploader } from '@/components/video-uploader'
 import { DeleteVideoButton } from '@/components/delete-video-button'
 import { ScenesList } from '@/components/scenes-list'
 import { VideoPlayerWithMarkers } from '@/components/video-player-with-markers'
 import { VersionSelector } from '@/components/version-selector'
-import { TimelineEditor } from '@/components/timeline-editor'
-import { getSignedSourceVideoUrl } from '@/lib/storage'
+import { TimelineEditor } from '@/components/timeline-editor-wrapper'
+import { RenderPanel } from '@/components/render-panel'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -44,6 +54,11 @@ export default async function TaskPage({ params, searchParams }: PageProps) {
   const segments = selectedVersion
     ? await getVersionSegments(selectedVersion.id)
     : []
+
+  // Signed URL для рендеру (якщо він є)
+  const renderedVideoUrl = selectedVersion?.rendered_video_path
+    ? await getSignedRenderedVideoUrl(selectedVersion.rendered_video_path)
+    : null
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -149,12 +164,17 @@ export default async function TaskPage({ params, searchParams }: PageProps) {
               currentVersionId={selectedVersion?.id ?? null}
             />
             {selectedVersion ? (
-              <div className="border-t pt-4">
+              <div className="border-t pt-4 space-y-4">
                 <TimelineEditor
                   taskId={task.id}
                   versionId={selectedVersion.id}
                   segments={segments}
                   hasScenes={scenes.length > 0}
+                />
+                <RenderPanel
+                  version={selectedVersion}
+                  segments={segments}
+                  renderedVideoUrl={renderedVideoUrl}
                 />
               </div>
             ) : (

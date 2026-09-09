@@ -99,3 +99,75 @@ export async function detectScenes(
     })
   })
 }
+
+export type RenderSegment = {
+  start: number
+  end: number
+}
+
+/**
+ * Рендерить фінальне відео з переданих сегментів вихідного файлу.
+ * Використовує filter_complex з trim + concat в одному виклику ffmpeg.
+ */
+export async function renderConcatVideo(
+  sourceFilePath: string,
+  outputFilePath: string,
+  segments: RenderSegment[]
+): Promise<void> {
+  if (segments.length === 0) {
+    throw new Error('Немає сегментів для рендеру')
+  }
+
+  // Будуємо filter_complex рядок
+  const filterParts: string[] = []
+  const concatInputs: string[] = []
+
+  segments.forEach((seg, i) => {
+    filterParts.push(
+      `[0:v]trim=start=${seg.start}:end=${seg.end},setpts=PTS-STARTPTS[v${i}]`
+    )
+    filterParts.push(
+      `[0:a]atrim=start=${seg.start}:end=${seg.end},asetpts=PTS-STARTPTS[a${i}]`
+    )
+    concatInputs.push(`[v${i}][a${i}]`)
+  })
+
+  filterParts.push(
+    `${concatInputs.join('')}concat=n=${segments.length}:v=1:a=1[outv][outa]`
+  )
+
+  const filterComplex = filterParts.join(';')
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn('ffmpeg', [
+      '-y', // перезаписуй output якщо вже існує
+      '-i', sourceFilePath,
+      '-filter_complex', filterComplex,
+      '-map', '[outv]',
+      '-map', '[outa]',
+      '-c:v', 'libx264',
+      '-c:a', 'aac',
+      '-preset', 'fast',
+      '-movflags', '+faststart', // оптимізує mp4 для стрімінгу в браузері
+      outputFilePath,
+    ])
+
+    let stderr = ''
+    proc.stderr.on('data', (chunk) => {
+      stderr += chunk.toString()
+    })
+
+    proc.on('error', (err) => reject(err))
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(
+          new Error(
+            `ffmpeg render exited with code ${code}. Last output: ${stderr.slice(-500)}`
+          )
+        )
+        return
+      }
+      resolve()
+    })
+  })
+}
