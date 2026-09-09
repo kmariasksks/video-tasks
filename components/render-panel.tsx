@@ -112,9 +112,8 @@ export function RenderPanel({ version, segments, renderedVideoUrl }: Props) {
                 </span>
               )}
             </div>
-            <a
-              href={renderedVideoUrl}
-              download={`${version.name}.mp4`}
+            <a       
+              href={`/api/versions/${version.id}/download`}
               className="text-blue-600 hover:underline"
             >
               Завантажити
