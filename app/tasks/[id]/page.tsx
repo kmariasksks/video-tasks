@@ -22,6 +22,7 @@ import { VersionSelector } from '@/components/version-selector'
 import { TimelineEditor } from '@/components/timeline-editor-wrapper'
 import { RenderPanel } from '@/components/render-panel'
 import { CommentsSection } from '@/components/comments-section'
+import { StatusActions } from '@/components/status-actions'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -96,6 +97,10 @@ export default async function TaskPage({ params, searchParams }: PageProps) {
             >
               {TASK_STATUS_LABELS[task.status]}
             </span>
+          </div>
+
+          <div className="border-t pt-4">
+            <StatusActions taskId={task.id} currentStatus={task.status} />
           </div>
 
           {task.description && (
