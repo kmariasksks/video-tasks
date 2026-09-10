@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { probeVideo } from '@/lib/ffmpeg'
 import { createTempDir, cleanupTempDir } from '@/lib/temp-files'
+import { logError } from '@/lib/error-logger'
 import { revalidatePath } from 'next/cache'
 
 type RouteParams = {
@@ -14,7 +15,6 @@ type RouteParams = {
 export async function POST(_request: Request, { params }: RouteParams) {
   const { id: taskId } = await params
 
-  // 1. Auth-перевірка через звичайний server client (з cookies)
   const supabase = await createClient()
   const {
     data: { user },
@@ -24,7 +24,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: 'Не залогінені' }, { status: 401 })
   }
 
-  // 2. Отримуємо задачу і перевіряємо чи є source_video_path
   const { data: task, error: taskError } = await supabase
     .from('tasks')
     .select('id, source_video_path')
@@ -42,34 +41,23 @@ export async function POST(_request: Request, { params }: RouteParams) {
     )
   }
 
-  // 3. Готуємо тимчасову папку
   const tempDir = await createTempDir('probe-')
   const localVideoPath = join(tempDir, 'video')
 
   try {
-    // 4. Завантажуємо файл з Supabase Storage через admin-клієнт
-    // (щоб не залежати від RLS на файл, ми вже перевірили доступ вище)
     const admin = createAdminClient()
     const { data: fileData, error: downloadError } = await admin.storage
       .from('source-videos')
       .download(task.source_video_path)
 
     if (downloadError || !fileData) {
-      console.error('[probe] download error:', downloadError)
-      return NextResponse.json(
-        { error: 'Не вдалося завантажити відео зі сховища' },
-        { status: 500 }
-      )
+      throw new Error(`Не вдалося завантажити відео: ${downloadError?.message}`)
     }
 
-    // Blob → Buffer → файл на диску
-    const arrayBuffer = await fileData.arrayBuffer()
-    await writeFile(localVideoPath, Buffer.from(arrayBuffer))
+    await writeFile(localVideoPath, Buffer.from(await fileData.arrayBuffer()))
 
-    // 5. Запускаємо ffprobe
     const probe = await probeVideo(localVideoPath)
 
-    // 6. Оновлюємо БД
     const { error: updateError } = await supabase
       .from('tasks')
       .update({
@@ -78,11 +66,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
       .eq('id', taskId)
 
     if (updateError) {
-      console.error('[probe] update error:', JSON.stringify(updateError))
-      return NextResponse.json(
-        { error: 'Не вдалося оновити задачу' },
-        { status: 500 }
-      )
+      throw new Error(`Не вдалося оновити задачу: ${updateError.message}`)
     }
 
     revalidatePath(`/tasks/${taskId}`)
@@ -93,13 +77,21 @@ export async function POST(_request: Request, { params }: RouteParams) {
       format: probe.format,
     })
   } catch (err) {
-    console.error('[probe] unexpected error:', err)
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Невідома помилка' },
-      { status: 500 }
-    )
+    const message = err instanceof Error ? err.message : 'Невідома помилка'
+
+    // Probe — не критично (це просто метадані, не блокує основний функціонал).
+    // Логуємо в БД, але не в Telegram.
+    await logError({
+      stage: 'upload',
+      message,
+      error: err,
+      taskId,
+      userId: user.id,
+      critical: false,
+    })
+
+    return NextResponse.json({ error: message }, { status: 500 })
   } finally {
-    // 7. ЗАВЖДИ чистимо тимчасову папку
     await cleanupTempDir(tempDir)
   }
 }

@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { probeVideo, renderConcatVideo } from '@/lib/ffmpeg'
 import { createTempDir, cleanupTempDir } from '@/lib/temp-files'
+import { logError } from '@/lib/error-logger'
 import { revalidatePath } from 'next/cache'
 
 type RouteParams = {
@@ -25,7 +26,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: 'Не залогінені' }, { status: 401 })
   }
 
-  // 1. Отримуємо версію
   const { data: version, error: versionError } = await supabase
     .from('versions')
     .select('id, task_id, version_number')
@@ -36,7 +36,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: 'Версію не знайдено' }, { status: 404 })
   }
 
-  // 2. Отримуємо задачу з шляхом до сирого відео
   const { data: task, error: taskError } = await supabase
     .from('tasks')
     .select('id, source_video_path, status')
@@ -50,7 +49,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
     )
   }
 
-  // 3. Отримуємо сегменти версії
   const { data: segments, error: segmentsError } = await supabase
     .from('version_segments')
     .select('start_sec, end_sec, position')
@@ -71,7 +69,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
     )
   }
 
-  // 4. Позначаємо статус як "rendering"
   await admin
     .from('versions')
     .update({ render_status: 'rendering', render_error: null })
@@ -83,7 +80,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
   const localOutputPath = join(tempDir, 'output.mp4')
 
   try {
-    // 5. Скачуємо оригінал з Storage
     const { data: fileData, error: downloadError } = await admin.storage
       .from('source-videos')
       .download(task.source_video_path)
@@ -94,17 +90,14 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     await writeFile(localSourcePath, Buffer.from(await fileData.arrayBuffer()))
 
-    // 6. Запускаємо рендер
     await renderConcatVideo(
       localSourcePath,
       localOutputPath,
       segments.map((s) => ({ start: s.start_sec, end: s.end_sec }))
     )
 
-    // 7. Дізнаємось тривалість фінального рендеру
     const { duration: renderedDuration } = await probeVideo(localOutputPath)
 
-    // 8. Заливаємо рендер у Storage
     const renderedBuffer = await readFile(localOutputPath)
     const timestamp = Date.now()
     const renderedPath = `${task.id}/v${version.version_number}-${timestamp}.mp4`
@@ -122,7 +115,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     const renderDurationMs = Date.now() - startTime
 
-    // 9. Оновлюємо версію
     const { error: updateVersionError } = await admin
       .from('versions')
       .update({
@@ -138,8 +130,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
       throw new Error(`Не вдалося оновити версію: ${updateVersionError.message}`)
     }
 
-    // 10. Автоматично міняємо статус задачі на review (вимога ТЗ)
-    // Робимо тільки якщо задача була у todo/in_progress. Не чіпаємо якщо вже review/done.
     if (task.status === 'todo' || task.status === 'in_progress') {
       await admin
         .from('tasks')
@@ -156,10 +146,23 @@ export async function POST(_request: Request, { params }: RouteParams) {
       renderedPath,
     })
   } catch (err) {
-    console.error('[render] error:', err)
     const message = err instanceof Error ? err.message : 'Невідома помилка'
 
-    // Пишемо помилку в БД щоб юзер побачив
+    // Логуємо як CRITICAL — це FFmpeg/рендер, ключова частина продукту
+    await logError({
+      stage: 'render',
+      message,
+      error: err,
+      taskId: task.id,
+      userId: user.id,
+      context: {
+        versionId,
+        versionNumber: version.version_number,
+        segmentsCount: segments.length,
+      },
+      critical: true,
+    })
+
     await admin
       .from('versions')
       .update({

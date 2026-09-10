@@ -109,11 +109,14 @@ export type RenderSegment = {
  * Рендерить фінальне відео з переданих сегментів вихідного файлу.
  * Використовує filter_complex з trim + concat в одному виклику ffmpeg.
  */
+  
 export async function renderConcatVideo(
+
   sourceFilePath: string,
   outputFilePath: string,
   segments: RenderSegment[]
 ): Promise<void> {
+
   if (segments.length === 0) {
     throw new Error('Немає сегментів для рендеру')
   }

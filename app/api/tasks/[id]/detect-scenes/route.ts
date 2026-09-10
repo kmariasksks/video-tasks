@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { probeVideo, detectScenes } from '@/lib/ffmpeg'
 import { createTempDir, cleanupTempDir } from '@/lib/temp-files'
+import { logError } from '@/lib/error-logger'
 import { revalidatePath } from 'next/cache'
 
 type RouteParams = {
@@ -45,42 +46,28 @@ export async function POST(_request: Request, { params }: RouteParams) {
   const admin = createAdminClient()
 
   try {
-    // 1. Завантажуємо файл
     const { data: fileData, error: downloadError } = await admin.storage
       .from('source-videos')
       .download(task.source_video_path)
 
     if (downloadError || !fileData) {
-      console.error('[detect-scenes] download error:', downloadError)
-      return NextResponse.json(
-        { error: 'Не вдалося завантажити відео' },
-        { status: 500 }
-      )
+      throw new Error(`Не вдалося завантажити відео: ${downloadError?.message}`)
     }
 
     await writeFile(localVideoPath, Buffer.from(await fileData.arrayBuffer()))
 
-    // 2. Дізнаємось duration (потрібен для меж останньої сцени)
     const { duration } = await probeVideo(localVideoPath)
-
-    // 3. Запускаємо scene detection
     const scenes = await detectScenes(localVideoPath, duration)
 
-    // 4. Видаляємо старі сцени цієї задачі (якщо повторний прогін)
     const { error: deleteError } = await admin
       .from('scenes')
       .delete()
       .eq('task_id', taskId)
 
     if (deleteError) {
-      console.error('[detect-scenes] delete error:', JSON.stringify(deleteError))
-      return NextResponse.json(
-        { error: 'Не вдалося очистити старі сцени' },
-        { status: 500 }
-      )
+      throw new Error(`Не вдалося очистити старі сцени: ${deleteError.message}`)
     }
 
-    // 5. Вставляємо нові
     if (scenes.length > 0) {
       const { error: insertError } = await admin.from('scenes').insert(
         scenes.map((s, i) => ({
@@ -92,16 +79,11 @@ export async function POST(_request: Request, { params }: RouteParams) {
       )
 
       if (insertError) {
-        console.error('[detect-scenes] insert error:', JSON.stringify(insertError))
-        return NextResponse.json(
-          { error: 'Не вдалося зберегти сцени' },
-          { status: 500 }
-        )
+        throw new Error(`Не вдалося зберегти сцени: ${insertError.message}`)
       }
     }
 
-    // Автостворення v1, якщо в задачі ще нема жодної версії.
-    // Це дає юзеру одразу готовий таймлайн з усіма сценами.
+    // Автостворення v1
     const { data: existingVersions } = await admin
       .from('versions')
       .select('id')
@@ -123,7 +105,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
       if (versionErr) {
         console.error('[detect-scenes] auto v1 error:', JSON.stringify(versionErr))
       } else if (newVersion && scenes.length > 0) {
-        // Копіюємо сцени в сегменти v1
         const { data: freshScenes } = await admin
           .from('scenes')
           .select('id, scene_index, start_sec, end_sec')
@@ -152,11 +133,18 @@ export async function POST(_request: Request, { params }: RouteParams) {
       duration,
     })
   } catch (err) {
-    console.error('[detect-scenes] unexpected:', err)
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Невідома помилка' },
-      { status: 500 }
-    )
+    const message = err instanceof Error ? err.message : 'Невідома помилка'
+
+    await logError({
+      stage: 'scene_detection',
+      message,
+      error: err,
+      taskId,
+      userId: user.id,
+      critical: true,
+    })
+
+    return NextResponse.json({ error: message }, { status: 500 })
   } finally {
     await cleanupTempDir(tempDir)
   }
