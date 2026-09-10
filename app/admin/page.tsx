@@ -11,6 +11,7 @@ import { AdminUserStats } from '@/components/admin-user-stats'
 import { AdminRenderStats } from '@/components/admin-render-stats'
 import { AdminErrorsList } from '@/components/admin-errors-list'
 import type { ErrorStage } from '@/types/database'
+import { AdminTestAlertButton } from '@/components/admin-test-alert-button'
 
 type PageProps = {
   searchParams: Promise<{ stage?: string; type?: string }>
@@ -75,6 +76,7 @@ export default async function AdminPage({ searchParams }: PageProps) {
       </header>
 
       <main className="max-w-6xl mx-auto p-6 space-y-6">
+        <AdminTestAlertButton />
         <AdminRenderStats stats={renderStats} />
         <AdminUserStats rows={userStats} />
         <AdminErrorsList
