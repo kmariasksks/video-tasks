@@ -207,6 +207,15 @@ npm run dev
 
 ---
 
+## AI
+
+Проєкт зроблено спільно з Claude (Anthropic) в чат-інтерфейсі та за допомогою Claude Code. Ключові моменти:
+- Архітектура: розділення `scenes` і `version_segments`, вибір synchronous processing замість черги, structure API routes vs Server Actions.
+- Debugging: hydration errors dnd-kit → рішення через `dynamic({ ssr: false })`; RLS-помилки на видаленні сцен → використання admin client.
+- Проблеми, які я ловила: Claude не одразу пам'ятав про необхідність розділення client-safe і server-only файлів (`lib/scenes.ts` vs `lib/tasks.ts`), кілька разів давав код зі зниклими JSX-тегами при копіюванні.
+
+---
+
 ## Що б доробила за більшого часу
 
 - **Winston queue замість синхронної обробки.** Для відео > 30s потрібен окремий worker-процес (pg-boss + окремий Railway service). Це дасть відновлення після падінь, паралельну обробку, retry-логіку.
@@ -218,17 +227,6 @@ npm run dev
 - **Мобільний drag&drop у Kanban.** Зараз dnd-kit сконфігурований на mouse+keyboard. Треба додати TouchSensor для тачскрінів.
 - **Design polish.** Компоненти функціональні, але базовий Tailwind-стиль. За додатковий день можна зробити консистентну design-систему з нормальними кольорами, типографікою, spacing.
 - **E2E тести.** Playwright з ~5 сценаріями: signup, upload, edit timeline, render, download. Це б замінило ручне тестування edge cases.
-
----
-
-## AI-колаборація
-
-Проєкт зроблено спільно з Claude (Anthropic) в чат-інтерфейсі та за допомогою Claude Code. Ключові моменти співпраці:
-- Архітектура: розділення `scenes` і `version_segments`, вибір synchronous processing замість черги, structure API routes vs Server Actions.
-- Debugging: hydration errors dnd-kit → рішення через `dynamic({ ssr: false })`; RLS-помилки на видаленні сцен → використання admin client.
-- Проблеми, які я ловила: Claude не одразу пам'ятав про необхідність розділення client-safe і server-only файлів (`lib/scenes.ts` vs `lib/tasks.ts`), кілька разів давав код зі зниклими JSX-тегами при копіюванні.
-
-Повна історія розмови: [ТУТ ПОСИЛАННЯ НА SHARE ЧАТУ АБО ФОЛДЕР ЗІ СКРІНАМИ]
 
 ---
 
